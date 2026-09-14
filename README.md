@@ -1,5 +1,7 @@
 # BTL Nhóm 11 — SecureGate Binary Parser Fuzzing
 
+[![Validate project](https://github.com/bachiep/securegate-binary-parser-fuzzing/actions/workflows/ci.yml/badge.svg)](https://github.com/bachiep/securegate-binary-parser-fuzzing/actions/workflows/ci.yml)
+
 **Đề tài 4: Kiểm thử mờ (Fuzzing)**
 Học phần CSE703093 — An toàn phần mềm
 
@@ -18,7 +20,7 @@ Học phần CSE703093 — An toàn phần mềm
 # 1. Build target (vulnerable + fixed)
 make vuln fixed
 
-# 2. Chạy test suite (27 tests)
+# 2. Chạy test suite (28 tests)
 make test
 
 # 3. Chạy static analysis
