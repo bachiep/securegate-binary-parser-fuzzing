@@ -34,6 +34,10 @@ Kiểm thử mờ (fuzzing) là kỹ thuật tự động sinh đầu vào để
 4. **So sánh định lượng** black-box vs white-box trong việc tìm crash CWE-121 (benchmark chính).
 5. Phân tích bổ sung: greybox coverage growth và benchmark unlock code (bài toán cô lập 32-bit).
 
+### 1.3 Phạm vi
+
+Phạm vi gồm đúng một parser C tự viết nhận **một đường dẫn file nhị phân**, hai biến thể vulnerable/fixed, và ba chiến lược sinh input. Phân tích tập trung vào một lỗi CWE-121 có chủ đích, validation của giao thức và hiệu quả tìm đường đến lỗi. Dự án không đánh giá khả năng khai thác RCE, không fuzz network service thực, không đo hiệu năng AFL/libFuzzer, và không tuyên bố fuzzing chứng minh parser an toàn tuyệt đối.
+
 ---
 
 ## 2. Mô tả chương trình mục tiêu
@@ -58,11 +62,27 @@ Parser nhận một file nhị phân chứa một gói tin tuân theo giao thứ
 
 Sau header: `payload_len` byte payload + `checksum:u32 LE` (tổng byte header+payload mod 2³²).
 
-### 2.2 Chuỗi validation
+### 2.2 Luồng dữ liệu, attack surface và độ phức tạp
+
+```mermaid
+flowchart LR
+    A[File nhị phân không tin cậy] --> B[Đọc file vào buffer]
+    B --> C[Header + length validation]
+    C --> D[Checksum + ASCII validation]
+    D --> E{Packet type}
+    E -->|Registration| F[Copy device ID]
+    E -->|Unlock| G[Kiểm tra cặp unlock]
+    F --> H[Output OK hoặc ASan crash ở bản vulnerable]
+    G --> H
+```
+
+Attack surface duy nhất là bytes của file đầu vào: magic, các trường length, payload, checksum và hai trường unlock đều do bên ngoài kiểm soát. Target gồm khoảng 286 LOC C và 5 hàm chính (`compute_checksum`, `read_le16`, `read_le32`, `is_ascii_printable`, `main`), nằm trong phạm vi nhỏ đủ để hiểu toàn bộ luồng nhưng vẫn có nhiều validation gate trước điểm lỗi.
+
+### 2.3 Chuỗi validation
 
 Parser kiểm tra tuần tự: magic → version → type → flags → reserved → kích thước file → `payload_len >= device_id_len` → checksum → ASCII device_id. Gói bị reject tại bất kỳ bước nào sẽ dừng xử lý ngay.
 
-### 2.3 Attack surface và lỗi CWE-121
+### 2.4 Attack surface và lỗi CWE-121
 
 **Bản vulnerable:** `device_id_len` cho phép tới 32 nhưng `char device_id[16]` trên stack → `memcpy(device_id, payload, hdr.device_id_len)` ghi tràn khi `device_id_len > 16`.
 
@@ -85,7 +105,7 @@ memcpy(device_id, payload, hdr.device_id_len);
 device_id[hdr.device_id_len] = '\0';
 ```
 
-### 2.4 Rào cản fuzzing
+### 2.5 Rào cản fuzzing
 
 Để trigger CWE-121, input phải:
 1. Khớp đúng magic `"IGW1"` (4 byte cố định) — xác suất random: $P = (1/256)^4 \approx 2.3 \times 10^{-10}$
@@ -109,6 +129,12 @@ cppcheck --enable=all --inconclusive --std=c11 src/gateway_parser.c
 ```
 
 Cppcheck không nhất thiết suy ra được `device_id_len` do input điều khiển trong bản demo; vì vậy kết quả “không có lỗi chắc chắn” không thay thế ASan. Cảnh báo/style và phiên bản lệnh chạy thực tế được lưu cùng dữ liệu nộp bài.
+
+| Lệnh | Kết quả thực tế | Diễn giải |
+|---|---|---|
+| `make cppcheck` | Không có defect an toàn được kết luận | Cppcheck không xác nhận được overflow phụ thuộc input này. |
+| Cảnh báo style | `argv` có thể khai báo const | Không ảnh hưởng logic parser hay CWE-121. |
+| Information | `normalCheckLevelMaxBranches` | Giới hạn mức phân tích của Cppcheck, không phải lỗi target. |
 
 ### 3.2 AddressSanitizer (ASan)
 
@@ -238,7 +264,7 @@ ASan xác nhận lỗi tại phép copy trong parser vulnerable:
 ERROR: AddressSanitizer: stack-buffer-overflow
 WRITE of size 24
 #0 ... in memcpy
-#1 ... in main src/gateway_parser.c:258
+#1 ... in main src/gateway_parser.c:264
 [96, 112) 'device_id' ... Memory access at offset 112 overflows this variable
 ```
 
@@ -286,7 +312,7 @@ Z3 solver giải ngược path predicate, bypass trực tiếp mọi rào cản 
 **Kết luận:**
 - White-box fuzzing (Z3) **vượt trội** black-box cho target có rào cản magic constant cố định.
 - Greybox coverage-guided cho phép khám phá từng bước, nhưng rào cản magic byte vẫn là thách thức lớn.
-- Static analysis (Cppcheck) và runtime sanitizer (ASan) là công cụ bổ trợ thiết yếu: Cppcheck phát hiện vấn đề tiềm ẩn, ASan xác nhận crash.
+- Static analysis (Cppcheck) và runtime sanitizer (ASan) là công cụ bổ trợ thiết yếu: Cppcheck cung cấp một lớp rà soát tĩnh nhưng không xác nhận được lỗi phụ thuộc input trong target này; ASan xác nhận crash tại runtime.
 - Kết hợp cả ba phương pháp mới tạo nên quy trình kiểm thử an toàn toàn diện.
 
 ---
