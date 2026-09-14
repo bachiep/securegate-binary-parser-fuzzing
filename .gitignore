@@ -1,0 +1,23 @@
+# Build, sanitizer, and gcov artifacts
+src/parser_vuln
+src/parser_fixed
+*.gcda
+*.gcno
+*.gcov
+
+# Python test/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated experiment state.  Final, vetted evidence can be added explicitly.
+data/raw/
+report/summary_table.md
+report/summary_statistics.json
+report/figures/
+crashes/
+
+# Local editor and operating-system metadata
+.DS_Store
+.vscode/
+.idea/
