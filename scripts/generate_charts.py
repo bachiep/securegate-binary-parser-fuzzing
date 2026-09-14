@@ -52,12 +52,13 @@ def chart_time_to_crash_boxplot(bb: list, wb: list, gb: list) -> None:
     box_data = [data[k] for k in labels]
     box_colors = [COLORS.get(k, "#95a5a6") for k in labels]
 
-    bp = ax.boxplot(box_data, labels=labels, patch_artist=True, widths=0.5)
+    bp = ax.boxplot(box_data, tick_labels=labels, patch_artist=True, widths=0.5)
     for patch, color in zip(bp["boxes"], box_colors):
         patch.set_facecolor(color)
         patch.set_alpha(0.7)
 
     ax.set_ylabel("Thời gian đến crash đầu tiên (giây)")
+    ax.set_yscale("log")
     ax.set_title("So sánh Time-to-First-Crash (30 trials)")
     ax.grid(axis="y", alpha=0.3)
     plt.tight_layout()

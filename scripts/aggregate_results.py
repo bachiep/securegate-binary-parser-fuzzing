@@ -6,6 +6,7 @@ Tong hop raw JSON/CSV thanh bang Markdown va CSV.
 from __future__ import annotations
 import json
 import os
+import re
 import statistics
 import sys
 
@@ -56,12 +57,13 @@ def aggregate_fuzzer(data: list[dict], name: str) -> dict:
     # Exec/s
     exec_rates = [d.get("exec_per_sec", 0) for d in data if d.get("exec_per_sec")]
 
-    # Unique crashes (by ASan signature)
+    # Unique crashes (by ASan signature). ASan stack frames contain an ASLR
+    # address, which must not turn the same fault site into 30 fake crashes.
     all_sigs = set()
     for d in data:
         for c in d.get("crashes", []):
             sig = c.get("asan_signature", "unknown")
-            all_sigs.add(sig)
+            all_sigs.add(re.sub(r"0x[0-9a-fA-F]+", "0xADDR", sig))
 
     return {
         "fuzzer": name,

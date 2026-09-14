@@ -20,7 +20,7 @@ Học phần CSE703093 — An toàn phần mềm
 # 1. Build target (vulnerable + fixed)
 make vuln fixed
 
-# 2. Chạy test suite (28 tests)
+# 2. Chạy test suite (29 tests)
 make test
 
 # 3. Chạy static analysis

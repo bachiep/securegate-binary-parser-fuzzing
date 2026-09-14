@@ -183,36 +183,64 @@ Mô phỏng đơn giản AFL:
 
 ### 5.1 Bảng so sánh chính: Black-box vs White-box
 
-*(Bảng sẽ được tổng hợp tự động từ `scripts/aggregate_results.py` sau khi chạy benchmark.)*
+Benchmark hoàn tất 30 trial/chiến lược với seed `0..29` và ngân sách 5.000 input/trial. `Time-to-crash` chỉ có ý nghĩa ở trial phát hiện crash; dấu `—` nghĩa là không trial nào phát hiện crash trong ngân sách đã thử.
 
-<!-- INSERT: report/summary_table.md -->
+| Metric | Black-box | White-box | Greybox (bổ sung) |
+|---|:---:|:---:|:---:|
+| Trials | 30 | 30 | 30 |
+| Success rate | 0/30 (0%) | 30/30 (100%) | 30/30 (100%) |
+| Unique ASan crash signatures | 0 | 1 | 1 |
+| Time-to-crash median (s) | — | 0.1706 | 7.7011 |
+| IQR time-to-crash (s) | — | [0.1654, 0.1755] | [6.9438, 11.0467] |
+| Min–max time-to-crash (s) | — | 0.1619–0.3070 | 6.2665–12.1327 |
+| Median exec/s | 50.95 | 5.85 | 36.95 |
+
+Mặc dù 30 crash record xuất hiện trong từng nhóm white-box và greybox, chúng có cùng fault site `memcpy`/`gateway_parser.c`; địa chỉ ASLR được chuẩn hoá trước khi khử trùng lặp, nên tính là một CWE-121 duy nhất.
 
 ### 5.2 Biểu đồ
 
 #### Time-to-First-Crash (Box plot)
-<!-- INSERT: report/figures/time_to_crash_boxplot.png -->
+![Time-to-first-crash box plot](figures/time_to_crash_boxplot.png)
 
 #### Success Rate (Bar chart)
-<!-- INSERT: report/figures/success_rate_bar.png -->
+![Success-rate bar chart](figures/success_rate_bar.png)
 
 ### 5.3 Phân tích Greybox
 
 #### Coverage Growth
-<!-- INSERT: report/figures/greybox_coverage_growth.png -->
+Greybox luôn đạt crash ở iteration 285, phủ 46 dòng và corpus cuối có 8 input trong 30 trial. Điều này phản ánh đúng cơ chế prefix enumeration có kiểm soát nêu ở §4.3, không phải kết quả tổng quát của AFL/libFuzzer.
+
+![Greybox coverage and corpus growth](figures/greybox_coverage_growth.png)
 
 ### 5.4 Benchmark phụ: Unlock Code
 
 *(Bài toán cô lập rào cản 32-bit code — không phải kết quả crash chính.)*
 
-<!-- INSERT: report/figures/unlock_benchmark.png -->
+![Unlock benchmark](figures/unlock_benchmark.png)
 
-- Z3 giải chính xác `(7421, 3390)` trong < 1ms và xác nhận một lần trên parser.
+- Z3 giải chính xác `(7421, 3390)` trong 0.418 ms và xác nhận một lần trên parser.
 - Black-box random `unlock_a/unlock_b` là mô phỏng không gian ứng viên để đo xác suất, không chạy 500.000 process target mỗi trial.
-- Với ngân sách 500.000 thử/trial, xác suất tìm được trong 1 trial: $\approx 1.2 \times 10^{-4}$ — gần như bằng 0.
+- Với ngân sách 500.000 thử/trial, xác suất tìm được trong 1 trial là $1-(1-2^{-32})^{500000} \approx 1.16 \times 10^{-4}$; quan sát 0/30 trial thành công phù hợp với kỳ vọng này.
 
 ### 5.5 Crash Input và ASan Trace
 
-*(Mẫu crash input hex dump và ASan trace sẽ được ghi nhận sau khi chạy benchmark.)*
+Input đại diện từ white-box (44 byte):
+
+```text
+49 47 57 31 01 01 18 00 18 00 00 00 00 00 00 00
+50 50 50 50 50 50 50 50 50 50 50 50 50 50 50 50
+50 50 50 50 50 50 50 50 ca 08 00 00
+```
+
+ASan xác nhận lỗi tại phép copy trong parser vulnerable:
+
+```text
+ERROR: AddressSanitizer: stack-buffer-overflow
+WRITE of size 24
+#0 ... in memcpy
+#1 ... in main src/gateway_parser.c:258
+[96, 112) 'device_id' ... Memory access at offset 112 overflows this variable
+```
 
 ### 5.6 Regression Test sau vá
 
@@ -239,9 +267,9 @@ Z3 solver giải ngược path predicate, bypass trực tiếp mọi rào cản 
 
 ### 6.3 Hạn chế
 
-1. **Target đơn giản:** Parser chỉ có khoảng 260 dòng C, 1 bug chủ đích. Trong thực tế, parser phức tạp hơn nhiều.
+1. **Target đơn giản:** Parser chỉ có khoảng 280 dòng C, 1 bug chủ đích. Trong thực tế, parser phức tạp hơn nhiều.
 2. **Path explosion:** White-box fuzzer mô hình hoá thủ công path predicate. Với chương trình lớn, path explosion khiến Z3 không scale.
-3. **Greybox chậm do gcov:** `gcov` per-input tạo overhead I/O lớn (~1 exec/s). Fuzzer thực tế dùng compile-time instrumentation (AFL/libFuzzer) nhanh hơn 100–1000x.
+3. **Greybox chậm do gcov:** `gcov` per-input tạo overhead I/O đáng kể; median quan sát là 36.95 exec/s trên máy thử nghiệm này. Fuzzer thực tế dùng compile-time instrumentation (AFL/libFuzzer) thường nhanh hơn đáng kể.
 4. **Fuzzing không sound/complete:** Không tìm thấy crash ≠ không có bug. Tìm thấy crash chỉ chứng minh sự tồn tại của bug, không chứng minh an toàn.
 5. **Chỉ 1 crash CWE-121:** Unique crash signature ít vì cùng 1 bug pattern.
 
@@ -251,9 +279,9 @@ Z3 solver giải ngược path predicate, bypass trực tiếp mọi rào cản 
 
 | Fuzzer | Tìm crash CWE-121? | Lý do |
 |---|:---:|---|
-| Black-box | ✗ (gần như) | Rào cản magic byte $P \approx 10^{-10}$ |
+| Black-box | ✗ (0/30 trong ngân sách) | Rào cản magic byte $P \approx 10^{-10}$ |
 | White-box | ✓ (luôn) | Z3 giải path predicate trực tiếp |
-| Greybox | *(tuỳ thí nghiệm)* | Coverage feedback giúp nhưng vẫn cần may mắn với magic |
+| Greybox | ✓ (30/30) | `gcov` feedback giữ prefix mới trong byte sweep có kiểm soát |
 
 **Kết luận:**
 - White-box fuzzing (Z3) **vượt trội** black-box cho target có rào cản magic constant cố định.
@@ -281,7 +309,7 @@ Z3 solver giải ngược path predicate, bypass trực tiếp mọi rào cản 
 ```bash
 cd BTL/
 make vuln fixed        # Build target
-make test              # Chạy test suite (27 tests)
+make test              # Chạy test suite
 make cppcheck          # Static analysis
 make benchmark         # Chạy 30 trials × 3 fuzzer
 python3 scripts/aggregate_results.py   # Tổng hợp
