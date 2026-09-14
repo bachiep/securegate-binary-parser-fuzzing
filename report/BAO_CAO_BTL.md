@@ -159,32 +159,30 @@ gcc -g -fsanitize=address,undefined --coverage -o parser_vuln gateway_parser.c
 - **BIẾT:** cấu trúc giao thức công khai (header layout, length/checksum rules)
 - **KHÔNG BIẾT:** magic `"IGW1"`, mã nguồn, coverage, cặp unlock
 
-**Chiến lược:** Đây là benchmark có kiểm soát rào cản magic. Generator cố định version/type/flags/reserved, length/checksum hợp lệ và ID ASCII 24 byte — cùng crash profile mà white-box truy tìm — rồi chỉ sinh magic 4 byte **ngẫu nhiên**. Nó không chứa `"IGW1"` trong dictionary hay seed, nhưng không cấm kết quả ngẫu nhiên trùng magic. Vì thế xác suất $2^{-32}$ bên dưới chính là xác suất vượt magic trong profile này, không phải xác suất của một parser fuzzer tổng quát.
+**Chiến lược:** Đây là benchmark có kiểm soát rào cản magic. Generator cố định version/type/flags/reserved, length/checksum hợp lệ và ID ASCII 24 byte — cùng crash profile đã công bố cho benchmark — rồi chỉ sinh magic 4 byte **ngẫu nhiên**. Nó không chứa `"IGW1"` trong dictionary hay seed, nhưng không cấm kết quả ngẫu nhiên trùng magic. Vì thế xác suất $2^{-32}$ bên dưới chính là xác suất vượt magic trong profile này, không phải xác suất của một parser fuzzer tổng quát.
 
 ### 4.2 White-box Fuzzer (Chương 4.6 + Z3 Chương 3)
 
-Dùng Z3 (SMT solver) mô hình hoá path predicate để sinh trực tiếp gói crash:
+Dùng Z3 (SMT solver) để **mã hoá thủ công các constraint của path đã đọc từ source** rồi dựng trực tiếp gói crash. Magic, version, type và `device_id_len=24` là các hằng số được đưa vào Python sau khi white-box đọc target; Z3 giải các byte payload ASCII và checksum phù hợp. Vì vậy đây là *solver-backed white-box packet construction*, không phải symbolic execution tự động khám phá hằng số trong binary.
 
 ```python
-# Path predicate → Z3 constraints
-s.add(magic == b"IGW1")        # 4 byte constraints
-s.add(version == 1)
-s.add(pkt_type == 0x01)        # Registration
-s.add(device_id_len == 24)     # Trigger CWE-121
+# Các hằng path đã biết sau khi đọc source:
+magic = b"IGW1"; version = 1; pkt_type = 0x01; device_id_len = 24
+# Z3 ràng buộc phần còn lại của packet:
 s.add(payload[i] >= 0x41)      # ASCII uppercase
 s.add(checksum == sum(header + payload) % 2**32)
 ```
 
-Z3 giải trong ~0.02 giây → sinh gói crash trực tiếp mà không cần thử ngẫu nhiên.
+Trên 30 lần lặp, thời gian Z3-only median là **0.0040 s** (min–max 0.0038–0.0216 s); median end-to-end đến ASan oracle là **0.1706 s**. Đây là repeated timing observations của cùng phương pháp dựng packet, không phải 30 khám phá ngẫu nhiên độc lập.
 
 ### 4.3 Greybox Fuzzer (Coverage-guided)
 
-Mô phỏng đơn giản AFL:
+Workflow greybox dùng phản hồi coverage kiểu Lab 8 (gcov), không phải AFL:
 1. Xoá `.gcda` → chạy target → `gcov` → đọc tập dòng cover
 2. Nếu input mở coverage mới → thêm vào corpus queue
 3. Mutate corpus: thay đổi 1–3 byte ngẫu nhiên, tính lại checksum
 
-Để quan sát rào cản magic trong một target nhỏ, greybox thực hiện byte sweep trên vùng magic của framing công khai và chỉ giữ prefix khi `gcov` mở dòng mới. Seed đã thỏa điều kiện ID 24 byte, và fuzzer không chứa giá trị `IGW1`. Đây là **coverage-guided prefix enumeration** có kiểm soát, không phải khẳng định về hiệu quả của AFL/libFuzzer trên target tổng quát. Greybox trình bày **riêng** — không đánh tráo với white-box trong so sánh chính.
+Để quan sát rào cản magic trong một target nhỏ, target cố ý tách guard magic theo từng byte; greybox thực hiện byte sweep xác định trên vùng magic của framing công khai và chỉ giữ prefix khi `gcov` mở dòng mới. Seed đã thỏa điều kiện ID 24 byte, và fuzzer không chứa giá trị `IGW1`. Vì thế đây chính xác là **deterministic coverage-observed prefix enumeration cho guard đã được tách**, không phải đo hiệu năng greybox mutation hay AFL/libFuzzer tổng quát. Greybox trình bày **riêng** — không đánh tráo với white-box trong so sánh chính.
 
 ### 4.4 Thiết kế thực nghiệm
 
@@ -199,7 +197,7 @@ Mô phỏng đơn giản AFL:
 **Metrics đo:**
 - Trial-to-first-ASan-crash (iteration number)
 - Wall-clock time (giây)
-- Exec/s
+- Exec/s (chỉ là chi phí thực thi quan sát được; **không dùng để xếp hạng** black-box với white-box vì white-box chạy một packet đã dựng)
 - Success rate (bao nhiêu trial tìm được crash)
 - Unique crash signatures (deduplicate bằng ASan stack)
 
@@ -209,7 +207,7 @@ Mô phỏng đơn giản AFL:
 
 ### 5.1 Bảng so sánh chính: Black-box vs White-box
 
-Benchmark hoàn tất 30 trial/chiến lược với seed `0..29` và ngân sách 5.000 input/trial. `Time-to-crash` chỉ có ý nghĩa ở trial phát hiện crash; dấu `—` nghĩa là không trial nào phát hiện crash trong ngân sách đã thử.
+Benchmark hoàn tất 30 trial/chiến lược với seed `0..29` và ngân sách tối đa 5.000 input/trial. Endpoint chính là **thành công tìm CWE-121 trong ngân sách** và wall-clock từ lúc bắt đầu đến ASan oracle; white-box dựng rồi chạy một packet, còn black-box dùng tối đa 5.000 packet. Vì vậy exec/s không phải metric so sánh hiệu quả thuật toán. `Time-to-crash` chỉ có ý nghĩa ở trial phát hiện crash; dấu `—` nghĩa là không trial nào phát hiện crash trong ngân sách đã thử.
 
 | Metric | Black-box | White-box | Greybox (bổ sung) |
 |---|:---:|:---:|:---:|
@@ -234,7 +232,7 @@ Mặc dù 30 crash record xuất hiện trong từng nhóm white-box và greybox
 ### 5.3 Phân tích Greybox
 
 #### Coverage Growth
-Greybox luôn đạt crash ở iteration 285, phủ 46 dòng và corpus cuối có 8 input trong 30 trial. Điều này phản ánh đúng cơ chế prefix enumeration có kiểm soát nêu ở §4.3, không phải kết quả tổng quát của AFL/libFuzzer.
+Greybox luôn đạt crash ở iteration 285, phủ 46 dòng và corpus cuối có 8 input trong 30 trial. Kết quả tất định này phản ánh chính xác prefix enumeration quan sát coverage trên four byte-wise guards ở §4.3, không phải hiệu năng mutation-guided fuzzing hay kết quả tổng quát của AFL/libFuzzer.
 
 ![Greybox coverage and corpus growth](figures/greybox_coverage_growth.png)
 
@@ -289,7 +287,7 @@ Với ngân sách 5.000 thử/trial, kỳ vọng tìm được magic đúng: $50
 
 ### 6.2 Tại sao white-box thành công?
 
-Z3 solver giải ngược path predicate, bypass trực tiếp mọi rào cản (magic, version, checksum) trong thời gian hằng số O(1 lần giải). Đây là ưu điểm bản chất của white-box: **thay vì tìm kiếm, nó suy diễn**.
+Do constants của path đã được mã hoá thủ công từ source, solver dựng checksum/payload hợp lệ và chạy trực tiếp một candidate vượt qua guards. Kết quả minh hoạ lợi ích của thông tin white-box đối với rào cản magic, nhưng không chứng minh symbolic execution tự động có chi phí hằng số hay scale được với parser lớn.
 
 ### 6.3 Hạn chế
 
@@ -306,25 +304,26 @@ Z3 solver giải ngược path predicate, bypass trực tiếp mọi rào cản 
 | Fuzzer | Tìm crash CWE-121? | Lý do |
 |---|:---:|---|
 | Black-box | ✗ (0/30 trong ngân sách) | Rào cản magic byte $P \approx 10^{-10}$ |
-| White-box | ✓ (luôn) | Z3 giải path predicate trực tiếp |
+| White-box | ✓ (luôn) | Hằng path mã hoá thủ công; Z3 dựng candidate hợp lệ |
 | Greybox | ✓ (30/30) | `gcov` feedback giữ prefix mới trong byte sweep có kiểm soát |
 
 **Kết luận:**
 - White-box fuzzing (Z3) **vượt trội** black-box cho target có rào cản magic constant cố định.
-- Greybox coverage-guided cho phép khám phá từng bước, nhưng rào cản magic byte vẫn là thách thức lớn.
+- Greybox trong bài đạt target nhờ deterministic prefix enumeration quan sát coverage trên guard byte-wise có chủ đích; kết quả không đại diện cho AFL/libFuzzer.
 - Static analysis (Cppcheck) và runtime sanitizer (ASan) là công cụ bổ trợ thiết yếu: Cppcheck cung cấp một lớp rà soát tĩnh nhưng không xác nhận được lỗi phụ thuộc input trong target này; ASan xác nhận crash tại runtime.
-- Kết hợp cả ba phương pháp mới tạo nên quy trình kiểm thử an toàn toàn diện.
+- Trong phạm vi một CWE-121 cài chủ đích, các công cụ bổ sung cho nhau ở mức minh hoạ; kết quả không chứng minh parser fixed an toàn tuyệt đối.
 
 ---
 
 ## Tài liệu tham khảo
 
-1. Đề cương CSE703093 — An toàn phần mềm, Chương 2, 3, 4.
-2. M. Zalewski, *American Fuzzy Lop (AFL) — Technical Whitepaper*, Google.
-3. MITRE CWE-121: Stack-based Buffer Overflow.
-4. L. de Moura and N. Bjørner, "Z3: An Efficient SMT Solver", *TACAS 2008*.
-5. K. Serebryany et al., "AddressSanitizer: A Fast Address Sanity Checker", *USENIX ATC 2012*.
-6. Google, *OSS-Fuzz: Continuous Fuzzing for Open Source Software*.
+1. Đề cương CSE703093 — An toàn phần mềm, Chương 2, 3, 4; tài liệu BTL_01 và BTL_02 do học phần cung cấp.
+2. M. Zalewski, *American Fuzzy Lop (AFL) — Technical Whitepaper*, 2013, https://lcamtuf.coredump.cx/afl/technical_details.txt (truy cập 14/09/2026).
+3. MITRE, *CWE-121: Stack-based Buffer Overflow*, https://cwe.mitre.org/data/definitions/121.html (truy cập 14/09/2026).
+4. L. de Moura and N. Bjørner, "Z3: An Efficient SMT Solver", *TACAS 2008*, DOI: https://doi.org/10.1007/978-3-540-78800-3_24.
+5. K. Serebryany et al., "AddressSanitizer: A Fast Address Sanity Checker", *USENIX ATC 2012*, https://www.usenix.org/conference/atc12/technical-sessions/presentation/serebryany.
+6. Google, *OSS-Fuzz documentation*, https://google.github.io/oss-fuzz/ (truy cập 14/09/2026).
+7. Tài liệu Lab 8 của học phần, `lab8_fuzzing/python/whitebox_fuzzer.py`: tham chiếu workflow `gcov` và fuzzer minh hoạ; implementation trong bài là bản tự viết, không import trực tiếp toolkit.
 
 ---
 

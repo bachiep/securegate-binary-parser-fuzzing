@@ -12,7 +12,7 @@ Học phần CSE703093 — An toàn phần mềm
 - Z3 solver (`pip install z3-solver`)
 - pytest (`pip install pytest`)
 - matplotlib (`pip install matplotlib`)
-- cppcheck (tuỳ chọn)
+- cppcheck (để tái lập static-analysis evidence)
 
 ## Quick Start
 
@@ -28,8 +28,8 @@ make cppcheck
 
 # 4. Demo từng fuzzer
 make fuzz-blackbox    # Black-box: ~5000 inputs, xác suất crash cực thấp
-make fuzz-whitebox    # White-box: Z3 giải, tìm crash ngay
-make fuzz-greybox     # Greybox: gcov feedback + byte sweep coverage-guided
+make fuzz-whitebox    # White-box: hằng path mã hoá thủ công + Z3 dựng packet
+make fuzz-greybox     # gcov + deterministic coverage-observed prefix enumeration
 
 # 5. Benchmark đầy đủ (30 trials × 3 fuzzer)
 make benchmark
@@ -61,7 +61,7 @@ BTL/
 │   └── unlock_benchmark.py # Benchmark mã unlock
 ├── tests/
 │   ├── test_parser.py     # 18 tests cho parser
-│   └── test_fuzzers.py    # 9 tests cho fuzzers
+│   └── test_fuzzers.py    # 12 tests cho fuzzers
 ├── scripts/
 │   ├── run_benchmark.py   # Chạy 30 trials × 3 fuzzer
 │   ├── aggregate_results.py # Tổng hợp → bảng Markdown
