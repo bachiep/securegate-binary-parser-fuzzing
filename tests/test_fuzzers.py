@@ -56,6 +56,22 @@ class TestBlackboxFuzzer:
             "(vi khong biet magic IGW1)"
         )
 
+    def test_blackbox_counts_only_inputs_executed_before_crash(self, monkeypatch):
+        """Neu oracle phat hien crash som, metric khong duoc ghi la full budget."""
+        import subprocess
+        import blackbox_fuzzer
+
+        fake_crash = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="",
+            stderr="ERROR: AddressSanitizer: stack-buffer-overflow\n"
+                   "#0 0x0 in main src/gateway_parser.c:1\n",
+        )
+        monkeypatch.setattr(blackbox_fuzzer, "run_target", lambda *_args, **_kwargs: fake_crash)
+
+        result = blackbox_fuzzer.fuzz(budget=10, seed=0)
+        assert result["first_crash_at"] == 0
+        assert result["iterations_used"] == 1
+
 
 class TestWhiteboxFuzzer:
     def test_z3_produces_valid_crash(self):

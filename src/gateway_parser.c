@@ -56,6 +56,13 @@ static uint16_t read_le16(const uint8_t *p) {
     return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
 }
 
+static uint32_t read_le32(const uint8_t *p) {
+    return (uint32_t)p[0]
+           | ((uint32_t)p[1] << 8)
+           | ((uint32_t)p[2] << 16)
+           | ((uint32_t)p[3] << 24);
+}
+
 /* ---------- Kiem tra ASCII printable ---------- */
 static int is_ascii_printable(const uint8_t *buf, size_t len) {
     for (size_t i = 0; i < len; i++) {
@@ -210,8 +217,7 @@ int main(int argc, char *argv[]) {
     size_t data_len = HEADER_SIZE + hdr.payload_len;
     uint32_t computed = compute_checksum(buf, data_len);
 
-    uint32_t stored;
-    memcpy(&stored, buf + data_len, CHECKSUM_SIZE);
+    uint32_t stored = read_le32(buf + data_len);
     if (computed != stored) {
         fprintf(stderr, "[REJECT] Checksum sai: tinh duoc 0x%08x, luu 0x%08x\n",
                 computed, stored);

@@ -84,8 +84,10 @@ def fuzz(budget: int = 5000, seed: int = 42, timeout: float = 5.0) -> dict:
     crashes = []
     first_crash_time = None
     start_time = time.time()
+    iterations_used = 0
 
     for i in range(budget):
+        iterations_used = i + 1
         packet = generate_random_packet(rng)
         result = run_target(packet, timeout=timeout)
 
@@ -115,9 +117,9 @@ def fuzz(budget: int = 5000, seed: int = 42, timeout: float = 5.0) -> dict:
         "fuzzer": "blackbox",
         "seed": seed,
         "budget": budget,
-        "iterations_used": budget,
+        "iterations_used": iterations_used,
         "wall_time_seconds": round(elapsed, 3),
-        "exec_per_sec": round(budget / elapsed, 1) if elapsed > 0 else 0,
+        "exec_per_sec": round(iterations_used / elapsed, 1) if elapsed > 0 else 0,
         "first_crash_at": crashes[0]["iteration"] if crashes else None,
         "time_to_first_crash_seconds": round(first_crash_time, 6) if first_crash_time is not None else None,
         "total_crashes": len(crashes),
