@@ -124,10 +124,12 @@ class TestChecksumAndLength:
     def test_length_mismatch(self):
         """payload_len trong header khong khop voi kich thuoc file thuc te."""
         pkt = build_registration_packet(device_id=b"TEST")
-        # Cat bot 2 byte cuoi payload
-        pkt = pkt[:-6] + pkt[-4:]  # bo 2 byte payload, giu checksum cu (se sai)
+        # Cat bot 2 byte cuoi payload, giu checksum cu.
+        # Parser phai reject o validation kich thuoc, truoc checksum.
+        pkt = pkt[:-6] + pkt[-4:]
         r = run_parser(PARSER_VULN, pkt)
         assert r.returncode != 0
+        assert "[REJECT] Kich thuoc file khong khop" in r.stderr
 
     def test_payload_len_less_than_device_id_len(self):
         """payload_len < device_id_len cho Registration."""

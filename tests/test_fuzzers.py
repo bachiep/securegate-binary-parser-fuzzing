@@ -14,6 +14,7 @@ import pytest
 
 BTL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(BTL_DIR, "fuzzers"))
+sys.path.insert(0, os.path.join(BTL_DIR, "scripts"))
 
 from packet_builder import MAGIC  # noqa: E402
 
@@ -151,3 +152,28 @@ class TestUnlockBenchmark:
         assert "found" in r
         assert "iteration" in r
         assert "time" in r
+
+
+class TestResultAggregation:
+    def test_unique_crash_dedup_ignores_aslr_addresses(self):
+        """Cung fault site voi dia chi ASLR khac nhau chi la mot unique crash."""
+        from aggregate_results import aggregate_fuzzer
+
+        data = [
+            {
+                "first_crash_at": 0,
+                "wall_time_seconds": 1.0,
+                "time_to_first_crash_seconds": 0.1,
+                "exec_per_sec": 10.0,
+                "crashes": [{"asan_signature": "#0 0x1111 in memcpy file.c:10"}],
+            },
+            {
+                "first_crash_at": 0,
+                "wall_time_seconds": 1.0,
+                "time_to_first_crash_seconds": 0.2,
+                "exec_per_sec": 10.0,
+                "crashes": [{"asan_signature": "#0 0xABCD in memcpy file.c:10"}],
+            },
+        ]
+
+        assert aggregate_fuzzer(data, "test")["unique_crash_signatures"] == 1
